@@ -54,15 +54,22 @@ sensor:
     update_interval: 30s
 
   - platform: template
-    name: "PT1000 Temperature"
-    id: rtd_1
+    name: "RTD CH4"
+    id: rtd_sim
     unit_of_measurement: "°C"
     accuracy_decimals: 2
     state_class: "measurement"
 
   - platform: template
-    name: "RTD Simulator Temperature"
-    id: rtd_sim
+    name: "RTD CH5"
+    id: rtd_chain
+    unit_of_measurement: "°C"
+    accuracy_decimals: 2
+    state_class: "measurement"
+
+  - platform: template
+    name: "TC CH12"
+    id: tc_k
     unit_of_measurement: "°C"
     accuracy_decimals: 2
     state_class: "measurement"
@@ -71,4 +78,4 @@ interval:
   - interval: 5s
     then:
       - lambda: |-
-          read_ltc2983_rtds(id(rtd_1), id(rtd_sim));
+          read_ltc2983_sensors(id(rtd_sim), id(rtd_chain), id(tc_k));

@@ -7,10 +7,11 @@
 
 static const char *const TAG = "LTC2983";
 
-// DC2213A dual RTD (shared CH3 RSENSE):
-//   CH3 = 2 kΩ RSENSE; CH1+CH2 tied (C1→GND)
-//   J3 PT1000: CH7 tied to CH3, CH8 = probe leg 2
-//   R6 simulator: pins 1+3 → CH3+CH10 (Kelvin), wiper pin 2 → CH11, C6→GND
+// DC2213A R6 adjustable RTD simulator + daisy-chained RTD (shared CH2 RSENSE):
+//   CH2 = 2 kΩ RSENSE; CH1 return (C1→GND)
+//   R6: pins 1+3 → CH2+CH3, wiper pin 2 → CH4, C6→GND
+//   External RTD: CH4 → CH5 (daisy chain)
+//   K-type TC: TC+ → CH12, TC− → CH13 — assign/read CH13 (pair CH13−CH12)
 
 #define LTC2983_COMMAND_STATUS_REG  0x0000
 #define LTC2983_GLOBAL_CONFIG_REG   0x00F0
@@ -27,16 +28,19 @@ static const char *const TAG = "LTC2983";
 #define LTC2983_SPI_MOSI    GPIO_NUM_5
 #define LTC2983_SPI_MISO    GPIO_NUM_4
 
-#define CH_RSENSE  3
-#define CH_RTD_J3  8
-#define CH_RTD_SIM 11   // R6 wiper; CH10 = Kelvin (tied to CH3 at R6 pins 1+3)
+#define CH_RSENSE    2
+#define CH_RTD_SIM   4   // R6 wiper; CH3 = pins 1+3 (tied to CH2); also CJC for TC
+#define CH_RTD_CHAIN 5   // daisy-chained from CH4
+#define CH_TC_K     13   // read CH13: diff pair CH13(−) vs CH12(+) per Figure 4
 
 #define CFG_RSENSE ((uint32_t)0x1D << 27) | 0x001F4000UL
-#define CFG_RTD_KELVIN ((uint32_t)0x0F << 27) | ((uint32_t)CH_RSENSE << 22) \
-                       | (0x3UL << 20) | (0x2UL << 18) | (0x6UL << 14)
-// R6: 2-terminal pot (CH3+CH10 ↔ CH11) — 2-wire internal, 100 µA
-#define CFG_RTD_SIM ((uint32_t)0x0F << 27) | ((uint32_t)CH_RSENSE << 22) \
-                    | (0x1UL << 18) | (0x5UL << 14)
+// PT1000 2-wire, 100 µA — daisy chain between adjacent channels
+#define CFG_RTD_PT1000 ((uint32_t)0x0F << 27) | ((uint32_t)CH_RSENSE << 22) \
+                       | (0x1UL << 18) | (0x5UL << 14)
+// Type-K TC, differential CH12/CH13, CJC from CH4, 10 µA OCD
+// bits 21:18 = 0100 (LTC2983 Table 14)
+#define CFG_TC_K ((uint32_t)0x02 << 27) | ((uint32_t)CH_RTD_SIM << 22) \
+                 | (0x1UL << 20)
 
 static spi_device_handle_t ltc2983_spi_device  = nullptr;
 static bool ltc2983_initialized                = false;
@@ -167,20 +171,20 @@ static bool initialize_ltc2983() {
   }
 
   write_dword(ch_assign_addr(CH_RSENSE), CFG_RSENSE);
-  write_dword(ch_assign_addr(CH_RTD_J3), CFG_RTD_KELVIN);
-  write_dword(ch_assign_addr(CH_RTD_SIM), CFG_RTD_SIM);
+  write_dword(ch_assign_addr(CH_RTD_SIM), CFG_RTD_PT1000);
+  write_dword(ch_assign_addr(CH_RTD_CHAIN), CFG_RTD_PT1000);
+  write_dword(ch_assign_addr(CH_TC_K), CFG_TC_K);
   write_byte(LTC2983_GLOBAL_CONFIG_REG, 0x00);
 
   ltc2983_initialized = true;
-  ESP_LOGI(TAG, "LTC2983 ready — CH%d RSENSE, CH%d J3, CH%d R6 (CH3+CH10)",
-           CH_RSENSE, CH_RTD_J3, CH_RTD_SIM);
+  ESP_LOGI(TAG, "LTC2983 ready — CH%d RSENSE, CH%d/CH%d RTD, CH%d TC-K (CH13−CH12)",
+           CH_RSENSE, CH_RTD_SIM, CH_RTD_CHAIN, CH_TC_K);
   return true;
 }
 
 static float parse_temperature(uint32_t raw) {
-  if (raw & (1UL << 31)) return NAN;
-  if (raw & (1UL << 30)) return NAN;
   if (!(raw & (1UL << 24))) return NAN;
+  if (raw & 0xFE000000UL) return NAN;  // any fault bit D31..D25
   int32_t t = (int32_t)(raw & 0x00FFFFFFUL);
   if (t & 0x00800000L) t |= (int32_t)0xFF000000;
   return (float)t / 1024.0f;
@@ -205,20 +209,31 @@ static float read_channel(uint8_t ch) {
   uint32_t raw = read_dword(ch_data_addr(ch));
   float temp = parse_temperature(raw);
   if (std::isnan(temp))
-    ESP_LOGI(TAG, "CH%d: flt=0x%02X temp=nan", ch, (uint8_t)(raw >> 24));
+    ESP_LOGI(TAG, "CH%d: flt=0x%02X temp=nan (hard=%d cj=%d ocr=%d ucr=%d)",
+             ch, (uint8_t)(raw >> 24),
+             (raw >> 31) & 1, (raw >> 29) & 1, (raw >> 27) & 1, (raw >> 26) & 1);
   else
     ESP_LOGI(TAG, "CH%d: temp=%.2fC", ch, temp);
   return temp;
 }
 
-inline void read_ltc2983_rtds(
-    esphome::template_::TemplateSensor *probe,
-    esphome::template_::TemplateSensor *simulator) {
+inline void read_ltc2983_sensors(
+    esphome::template_::TemplateSensor *simulator,
+    esphome::template_::TemplateSensor *chain,
+    esphome::template_::TemplateSensor *tc_k) {
 
   if (!initialize_ltc2983()) return;
 
-  float temp_j3 = read_channel(CH_RTD_J3);
   float temp_sim = read_channel(CH_RTD_SIM);
-  if (!std::isnan(temp_j3)) probe->publish_state(temp_j3);
   if (!std::isnan(temp_sim)) simulator->publish_state(temp_sim);
+
+  float temp_chain = read_channel(CH_RTD_CHAIN);
+  if (!std::isnan(temp_chain)) chain->publish_state(temp_chain);
+
+  float temp_tc = read_channel(CH_TC_K);
+  // CH13−CH12 diff vs TC+ on CH12 → invert slope; CJ from CH4 (temp_sim)
+  if (!std::isnan(temp_tc) && !std::isnan(temp_sim))
+    temp_tc = 2.0f * temp_sim - temp_tc;
+  if (!std::isnan(temp_tc) && temp_tc > -200.0f && temp_tc < 500.0f)
+    tc_k->publish_state(temp_tc);
 }

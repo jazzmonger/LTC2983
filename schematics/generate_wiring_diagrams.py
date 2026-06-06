@@ -847,7 +847,7 @@ def draw_dc2213a_dual_rtd():
              row_data=[
                  ["Tied→CH2|C1→GND", "RSENSE rtn", "2kΩ RSENSE|shared",
                   "Kelvin|(→CH3)", "PT1000|CFG_RTD_KELVIN", "NC",
-                  "Kelvin|(→CH3,R6 p1+3)", "R6 wiper|CFG_RTD_SIM"],
+                  "Kelvin|(→CH3,R6 p1+3)", "R6 wiper|2-wire 100µA"],
              ])
 
     def sym_rtd(d, x, y):
@@ -887,6 +887,145 @@ def draw_dc2213a_dual_rtd():
 
     img.save(OUT / "dc2213a-dual-rtd-wiring.png", "PNG")
     print("wrote dc2213a-dual-rtd-wiring.png")
+
+
+# ── Stick diagram: dual RTD (working firmware) ─────────────────────────────
+
+def draw_dc2213a_stick_dual_rtd():
+    """Compact stick schematic — CH8 J3 PT1000 + CH11 R6 simulator."""
+    W, H = 2000, 1100
+    img = Image.new("RGB", (W, H), C["bg"])
+    d = ImageDraw.Draw(img)
+
+    title = "DC2213A Stick Diagram — Dual RTD  (CH8 PT1000 + CH11 R6 Simulator)"
+    tw = d.textlength(title, font=F(32, bold=True))
+    d.text(((W - tw) / 2, 24), title, fill=C["title"], font=F(32, bold=True))
+    d.text((60, 68),
+           "Shared CH3 RSENSE  |  CH8 = 4-wire Kelvin 250 µA  |  CH11 = 2-wire 100 µA",
+           fill=C["muted"], font=F(15))
+
+    # LTC2983 channel block (left)
+    ltc_x0, ltc_y0, ltc_x1, ltc_y1 = 60, 120, 340, 980
+    d.rounded_rectangle([ltc_x0, ltc_y0, ltc_x1, ltc_y1],
+                        radius=10, outline=C["ltc_b"], width=3, fill=C["ltc_f"])
+    d.text((ltc_x0 + 20, ltc_y0 + 14), "LTC2983", fill=C["ltc_b"], font=F(22, bold=True))
+    d.text((ltc_x0 + 20, ltc_y0 + 44), "DC2209A + DC2213A", fill=C["muted"], font=F(14))
+
+    pin_x = ltc_x1 - 8
+    channels = [
+        (180, "CH1",  C["ch1"],  "tie→CH2"),
+        (240, "CH2",  C["ch2"],  "RSENSE rtn"),
+        (380, "CH3",  C["ch3"],  "2 kΩ RSENSE"),
+        (520, "CH7",  C["ch7"],  "J3 Kelvin"),
+        (580, "CH8",  C["ch8"],  "PT1000"),
+        (640, "CH9",  C["ch9"],  "NC"),
+        (700, "CH10", C["ch10"], "→R6 p1+3"),
+        (760, "CH11", C["ch11"], "R6 wiper"),
+    ]
+    for y, lbl, col, note in channels:
+        d.line([(ltc_x0 + 30, y), (pin_x, y)], fill=col, width=2)
+        d.text((ltc_x0 + 36, y - 10), lbl, fill=col, font=F(14, bold=True))
+        d.text((ltc_x0 + 100, y + 2), note, fill=C["muted"], font=F(12))
+
+    bus_x = 420
+    ch12_y, ch3_y = 210, 380
+
+    # CH1 + CH2 tied
+    d.line([(pin_x, 180), (bus_x, ch12_y)], fill=C["ch1"], width=3)
+    d.line([(pin_x, 240), (bus_x, ch12_y)], fill=C["ch2"], width=3)
+    dot(d, bus_x, ch12_y, color=C["ch2"])
+    d.text((bus_x + 12, ch12_y - 28), "CH1 + CH2 tied", fill=C["muted"], font=F(13))
+
+    # C1 filter to GND
+    c1_x = bus_x + 90
+    d.line([(bus_x, ch12_y), (c1_x, ch12_y)], fill=C["ch2"], width=3)
+    cap_sym_v(d, c1_x, ch12_y + 16, ch12_y + 90, label="0.01 µF", sublabel="C1")
+    gnd_sym(d, c1_x, ch12_y + 96, label="")
+
+    # RSENSE CH1/CH2 → CH3
+    resistor_rect_v(d, bus_x, ch12_y, ch3_y)
+    d.line([(pin_x, 380), (bus_x, ch3_y)], fill=C["ch3"], width=3)
+    dot(d, bus_x, ch3_y, r=8, color=C["ch3"])
+
+    # C2 on CH3
+    c2_x = bus_x + 90
+    d.line([(bus_x, ch3_y), (c2_x, ch3_y)], fill=C["ch3"], width=3)
+    cap_sym_v(d, c2_x, ch3_y + 16, ch3_y + 90, label="0.01 µF", sublabel="C2")
+    gnd_sym(d, c2_x, ch3_y + 96, label="")
+
+    hub_x = 560
+    d.line([(bus_x, ch3_y), (hub_x, ch3_y)], fill=C["ch3"], width=4)
+    dot(d, hub_x, ch3_y, r=8, color=C["ch3"])
+
+    # ── Upper branch: J3 PT1000 → CH8 ────────────────────────────────────
+    j3_y = 520
+    tie_j3 = hub_x + 120
+    probe_r = tie_j3 + 340
+
+    d.line([(hub_x, ch3_y), (hub_x, j3_y - 40), (tie_j3, j3_y - 40)], fill=C["ch3"], width=3)
+    d.line([(pin_x, 520), (tie_j3, j3_y)], fill=C["ch7"], width=3)
+    d.line([(tie_j3, j3_y - 40), (tie_j3, j3_y)], fill=C["rtd_w"], width=3)
+    dot(d, tie_j3, j3_y - 40, color=C["ch3"])
+    dot(d, tie_j3, j3_y, color=C["ch7"])
+    d.text((tie_j3 + 8, j3_y - 58), "CH3 + CH7", fill=C["muted"], font=F(13))
+
+    rtd_sym_h(d, tie_j3, j3_y, probe_r, label="PT1000")
+    d.line([(probe_r, j3_y), (probe_r, j3_y + 60)], fill=C["rtd_w"], width=3)
+    d.line([(pin_x, 580), (probe_r, j3_y + 60)], fill=C["ch8"], width=3)
+    dot(d, probe_r, j3_y + 60, color=C["ch8"])
+    d.text((probe_r + 10, j3_y + 44), "→ CH8", fill=C["ch8"], font=F(13, bold=True))
+
+    d.rounded_rectangle([hub_x + 40, 460, 1880, 640], radius=8,
+                        outline=C["rtd_b"], width=2, fill="#F5FAFF")
+    d.text((hub_x + 56, 468), "J3 External PT1000  (CFG_RTD_KELVIN, 250 µA)",
+           fill=C["rtd_lbl"], font=F(16, bold=True))
+
+    # CH9 NC
+    d.line([(pin_x, 640), (probe_r - 80, 640)], fill=C["ch9"], width=2)
+    no_connect(d, probe_r - 60, 640)
+    d.text((probe_r - 40, 628), "CH9 NC", fill=C["ch9"], font=F(12))
+
+    # ── Lower branch: R6 simulator → CH11 ────────────────────────────────
+    r6_y = 820
+    tie_r6 = hub_x + 120
+    pot_l = tie_r6 + 60
+    pot_r = pot_l + 360
+
+    d.line([(hub_x, ch3_y), (hub_x, r6_y - 50), (tie_r6, r6_y - 50)], fill=C["ch3"], width=3)
+    d.line([(pin_x, 700), (tie_r6, r6_y)], fill=C["ch10"], width=3)
+    d.line([(tie_r6, r6_y - 50), (tie_r6, r6_y)], fill=C["rtd_w"], width=3)
+    dot(d, tie_r6, r6_y - 50, color=C["ch3"])
+    dot(d, tie_r6, r6_y, color=C["ch10"])
+    d.text((tie_r6 + 8, r6_y - 68), "CH3 + CH10 → R6 pins 1+3", fill=C["muted"], font=F(13))
+
+    pot_sym_h(d, pot_l, r6_y, pot_r, label="10 kΩ", sublabel="R6")
+    d.line([(tie_r6, r6_y), (pot_l, r6_y)], fill=C["rtd_w"], width=3)
+    d.line([(pot_r, r6_y), (pin_x, 760)], fill=C["ch11"], width=3)
+    dot(d, pot_r, r6_y, color=C["ch11"])
+    d.text((pot_r + 8, r6_y - 24), "wiper pin 2 → CH11", fill=C["ch11"], font=F(13))
+
+    cap_x = pot_r + 120
+    d.line([(cap_x, r6_y), (cap_x, r6_y + 20)], fill=C["ch11"], width=3)
+    cap_sym_v(d, cap_x, r6_y + 20, r6_y + 100, label="0.01 µF", sublabel="C6")
+    gnd_sym(d, cap_x, r6_y + 106, label="")
+
+    d.rounded_rectangle([hub_x + 40, 700, 1880, 960], radius=8,
+                        outline="#1565C0", width=2, fill="#E8F6FF")
+    d.text((hub_x + 56, 708), "Onboard R6 Adjustable RTD Simulator  (CFG_RTD_SIM, 2-wire 100 µA)",
+           fill=C["rtd_lbl"], font=F(16, bold=True))
+
+    # Excitation path note
+    d.text((60, 1010), "Excitation return:",
+           fill=C["rtd_lbl"], font=F(15, bold=True))
+    d.text((220, 1010),
+           "CH8/CH11 → sensor → CH3 hub → 2 kΩ RSENSE → CH1+CH2 (C1→GND)",
+           fill=C["rtd_w"], font=F(15))
+    d.text((60, 1040),
+           "ESPHome:  PT1000 Temperature (CH8)  |  RTD Simulator Temperature (CH11)",
+           fill=C["muted"], font=F(14))
+
+    img.save(OUT / "dc2213a-dual-rtd-stick.png", "PNG")
+    print("wrote dc2213a-dual-rtd-stick.png")
 
 
 # ── Diagram 2: DC2210A single PT1000 (simplified, breadboard terminals) ────
@@ -1317,6 +1456,7 @@ def draw_dc2210a_5rtd_5tc():
 
 
 if __name__ == "__main__":
+    draw_dc2213a_stick_dual_rtd()
     draw_dc2213a_dual_rtd()
     draw_dc2213a_pt1000()
     draw_dc2213a_rtd_simulator()
