@@ -1,0 +1,74 @@
+# ESP32-S3-1 N16R8 — all sensors, GPIO, scripts, PID, and UART link to the display unit.
+# Board: Espressif ESP32-S3-DevKitC-1 class modules (16 MB flash / 8 MB PSRAM).
+
+substitutions:
+  name: cst-temp-module
+  friendly_name: CST Temp Module
+  
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  includes:
+    - ltc2983_handler.h
+  platformio_options:
+    board_build.flash_mode: dio
+    board_build.flash_size: 16MB
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+  flash_size: 16MB
+
+api:
+
+ota:
+  - platform: esphome
+
+packages:
+  wifi: !include common/wifi.yaml
+
+captive_portal:
+
+logger:
+  level: DEBUG
+  hardware_uart: UART0
+  baud_rate: 115200
+  logs:
+    api.connection: ERROR
+    spi: ERROR
+    LTC2983: DEBUG
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+# SPI: CS=GPIO2 CLK=GPIO9 MOSI=GPIO5 MISO=GPIO4 (ltc2983_handler.h)
+
+sensor:
+  - platform: wifi_signal
+    id: io_wifi_signal_db
+    internal: true
+    update_interval: 30s
+
+  - platform: template
+    name: "PT1000 Temperature"
+    id: rtd_1
+    unit_of_measurement: "°C"
+    accuracy_decimals: 2
+    state_class: "measurement"
+
+  - platform: template
+    name: "RTD Simulator Temperature"
+    id: rtd_sim
+    unit_of_measurement: "°C"
+    accuracy_decimals: 2
+    state_class: "measurement"
+
+interval:
+  - interval: 5s
+    then:
+      - lambda: |-
+          read_ltc2983_rtds(id(rtd_1), id(rtd_sim));
