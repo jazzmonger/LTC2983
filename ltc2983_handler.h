@@ -34,8 +34,9 @@ static const char *const TAG = "LTC2983";
 #define CFG_RSENSE ((uint32_t)0x1D << 27) | 0x001F4000UL
 #define CFG_RTD_KELVIN ((uint32_t)0x0F << 27) | ((uint32_t)CH_RSENSE << 22) \
                        | (0x3UL << 20) | (0x2UL << 18) | (0x6UL << 14)
-// R6: Kelvin via CH10 (tied to CH3), wiper on CH11 — same 250 µA as J3
-#define CFG_RTD_SIM CFG_RTD_KELVIN
+// R6: 2-terminal pot (CH3+CH10 ↔ CH11) — 2-wire internal, 100 µA
+#define CFG_RTD_SIM ((uint32_t)0x0F << 27) | ((uint32_t)CH_RSENSE << 22) \
+                    | (0x1UL << 18) | (0x5UL << 14)
 
 static spi_device_handle_t ltc2983_spi_device  = nullptr;
 static bool ltc2983_initialized                = false;
