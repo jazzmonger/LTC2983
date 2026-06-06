@@ -1,0 +1,39 @@
+---
+description: Canonical wiring diagram format for CST Temp Module schematics
+globs: schematics/**
+alwaysApply: false
+---
+
+# Wiring Diagram Standard
+
+All circuit/wiring diagrams use the **dc2210a-5rtd-5tc-wiring.png** format.
+
+## Required elements
+
+1. **Title bar** — centered, board-specific title
+2. **ESP32-S3 box** (green) — GPIO2/9/5/4 = CS/SCK/MOSI/MISO
+3. **DC2209A Main Board box** (cream) — LTC2983, Analog Devices subtitle
+4. **SPI arrows** — labeled CS, SCK, MOSI, MISO
+5. **Terminal strip or J3 block** — channel labels
+6. **Dashed section box** — blue for RTD, red for thermocouples
+7. **Traditional symbols** — zigzag RTD, rectangle RSENSE, TC circles, ground
+8. **Firmware Assignments table** — bottom left
+9. **Color Code / Legend** — bottom right with wire colors and symbol key
+
+## Generation
+
+Never hand-edit PNGs. Update `schematics/generate_wiring_diagrams.py` and run:
+
+```bash
+python3 schematics/generate_wiring_diagrams.py
+```
+
+## Color palette
+
+- Blue `#2471A3` — RTD / excitation
+- Orange `#E67E22` — CH3
+- Green `#27AE60` — CH7
+- Blue `#2980B9` — CH8
+- Red `#C0392B` — TC+
+- Yellow `#D4AC0D` — TC−
+- Black `#1C2833` — EEGND

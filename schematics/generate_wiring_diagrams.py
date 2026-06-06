@@ -29,6 +29,8 @@ C = {
     # channels
     "ch3":      "#E67E22", "ch7": "#27AE60",
     "ch8":      "#2980B9", "ch9": "#8E44AD",
+    "ch1":      "#5D6D7E", "ch2":      "#566573",
+    "ch10":     "#16A085", "ch11":     "#2980B9",
     # misc
     "gnd":      "#1A1A1A",
     "term_f":   "#ECEFF1", "term_b": "#546E7A",
@@ -74,6 +76,38 @@ def no_connect(d, x, y, size=13, color=None):
     color = color or C["ch9"]
     d.line([(x - size, y - size), (x + size, y + size)], fill=color, width=3)
     d.line([(x + size, y - size), (x - size, y + size)], fill=color, width=3)
+
+
+def pot_sym_h(d, x0, y, x1, label="10 kΩ", sublabel="R6", color=None, wiper_right=True):
+    """Horizontal potentiometer — DC2213A R6: pins 1+3 left, wiper pin 2 right."""
+    color = color or C["rtd_w"]
+    mid = (x0 + x1) // 2
+    h = 28
+    body_l, body_r = x0 + 36, x1 - 36
+    d.line([(x0, y), (body_l, y)], fill=color, width=3)
+    d.rectangle([body_l, y - h, body_r, y + h], outline=color, width=2, fill="#FFFFFF")
+    d.line([(body_r, y), (x1, y)], fill=color, width=3)
+    # wiper arrow at pin 2 (right end on R6)
+    wx = x1 if wiper_right else x0
+    d.line([(wx, y - h - 6), (wx, y - h - 28)], fill=color, width=2)
+    d.polygon([(wx, y - h - 34), (wx - 8, y - h - 22), (wx + 8, y - h - 22)],
+              fill=color)
+    d.text((body_l - 4, y + h + 8), "pins 1+3", fill=C["muted"], font=F(12))
+    d.text((body_r - 28, y + h + 8), "pin 2", fill=C["muted"], font=F(12))
+    d.text((mid - 36, y + h + 28), label, fill=color, font=F(15, bold=True))
+    d.text((mid - 12, y + h + 48), sublabel, fill=C["muted"], font=F(13))
+
+
+def cap_sym_v(d, x, y0, y1, label="0.01 µF", sublabel="C6", color=None):
+    """Vertical capacitor symbol."""
+    color = color or C["rtd_w"]
+    gap = 10
+    d.line([(x, y0), (x, y0 + 30)], fill=color, width=3)
+    d.line([(x - 18, y0 + 30), (x + 18, y0 + 30)], fill=color, width=3)
+    d.line([(x - 18, y0 + 30 + gap), (x + 18, y0 + 30 + gap)], fill=color, width=3)
+    d.line([(x, y0 + 30 + gap), (x, y1)], fill=color, width=3)
+    d.text((x + 22, y0 + 18), label, fill=color, font=F(14, bold=True))
+    d.text((x + 22, y0 + 36), sublabel, fill=C["muted"], font=F(13))
 
 
 def resistor_rect_v(d, x, y0, y1, color=None):
@@ -475,6 +509,384 @@ def draw_dc2213a_pt1000():
 
     img.save(OUT / "dc2213a-pt1000-wiring.png", "PNG")
     print("wrote dc2213a-pt1000-wiring.png")
+
+
+# ── Diagram 1b: DC2213A adjustable RTD simulator (onboard R6) ───────────────
+
+def draw_dc2213a_rtd_simulator():
+    W, H = 2400, 1600
+    img = Image.new("RGB", (W, H), C["bg"])
+    d = ImageDraw.Draw(img)
+
+    title = "DC2213A — Adjustable RTD Simulator  (R6: pins 1+3 = CH3+CH10, wiper = CH11)"
+    tw = d.textlength(title, font=F(36, bold=True))
+    d.text(((W - tw) / 2, 20), title, fill=C["title"], font=F(36, bold=True))
+
+    esp_box(d, (60, 74, 520, 272))
+    ltc_box(d, (1500, 74, 2320, 272))
+    spi_block(d, 540, 1480, 108)
+
+    dashed_rect(d, (60, 290, W - 60, 1210), fill=C["rtd_f"], border=C["rtd_b"])
+    d.text((80, 302), "Adjustable RTD Simulator Circuit",
+           fill=C["rtd_lbl"], font=F(20, bold=True))
+    d.text((80, 328),
+           "CH1 + CH2 tied (C1→GND only)   |   2 kΩ RSENSE: CH1/CH2–CH3   |   R6 pins 1+3 = CH3+CH10, wiper → CH11",
+           fill=C["muted"], font=F(14))
+
+    BUS_X = 260
+    ch12_y = 470
+    ch3_y = 640
+    rs_y0, rs_y1 = ch12_y, ch3_y
+
+    # CH1 + CH2 tied (return node — not a hard GND short)
+    dot(d, BUS_X, ch12_y, color=C["ch2"])
+    d.text((BUS_X + 14, ch12_y - 38), "CH1 + CH2 tied", fill=C["muted"], font=F(14))
+    d.text((BUS_X + 14, ch12_y - 18), "(not direct GND)", fill=C["muted"], font=F(13))
+
+    # C1: CH1/CH2 node → GND (filter only)
+    c1_x = BUS_X + 120
+    d.line([(BUS_X, ch12_y), (c1_x, ch12_y)], fill=C["ch2"], width=3)
+    cap_sym_v(d, c1_x, ch12_y + 20, ch12_y + 110, label="0.01 µF", sublabel="C1")
+    gnd_sym(d, c1_x, ch12_y + 116)
+
+    # 2 kΩ RSENSE between CH1/CH2 node and CH3
+    resistor_rect_v(d, BUS_X, rs_y0, rs_y1)
+    dot(d, BUS_X, ch3_y, color=C["ch3"])
+
+    # C2: CH3 → GND
+    c2_x = BUS_X + 120
+    d.line([(BUS_X, ch3_y), (c2_x, ch3_y)], fill=C["ch3"], width=3)
+    cap_sym_v(d, c2_x, ch3_y + 20, ch3_y + 110, label="0.01 µF", sublabel="C2")
+    gnd_sym(d, c2_x, ch3_y + 116)
+
+    # Terminal strip: CH1, CH2, CH3, CH10, CH11
+    TERM_X = 620
+    TW, TH, GAP = 130, 52, 12
+    active = [
+        ("CH1", C["ch1"]), ("CH2", C["ch2"]), ("CH3", C["ch3"]),
+        ("CH10", C["ch10"]), ("CH11", C["ch11"]),
+    ]
+    tys = []
+    y0 = 400
+    for i, (lbl, col) in enumerate(active):
+        ty = y0 + i * (TH + GAP)
+        tys.append(ty)
+        d.rounded_rectangle([TERM_X, ty, TERM_X + TW, ty + TH],
+                            radius=6, outline=col, width=2, fill="#FFFFFF")
+        d.text((TERM_X + 10, ty + 14), lbl, fill=col, font=F(16, bold=True))
+        cr = 14
+        scx = TERM_X + TW - cr - 8
+        scy = ty + TH // 2
+        d.ellipse([scx - cr, scy - cr, scx + cr, scy + cr],
+                  outline="#455A64", width=1, fill="#B0BEC5")
+        d.line([(scx - 8, scy - 8), (scx + 8, scy + 8)], fill="#263238", width=2)
+
+    ch1_ty, ch2_ty, ch3_ty, ch10_ty, ch11_ty = [ty + TH // 2 for ty in tys]
+    TR = TERM_X + TW
+
+    # Bus → terminals
+    d.line([(BUS_X, ch12_y), (TERM_X, ch2_ty)], fill=C["ch2"], width=3)
+    d.line([(TERM_X, ch1_ty), (TERM_X - 40, ch1_ty), (TERM_X - 40, ch2_ty),
+            (BUS_X, ch12_y)], fill=C["ch1"], width=3)
+    d.text((TERM_X - 36, (ch1_ty + ch2_ty) // 2 - 8), "tie", fill=C["muted"], font=F(12))
+    d.line([(BUS_X, ch3_y), (TERM_X, ch3_ty)], fill=C["ch3"], width=3)
+
+    # CH3 + CH10 → R6 pins 1+3 (left side of pot)
+    TIE_X = TR + 120
+    POT_Y = (ch3_ty + ch10_ty) // 2
+    d.line([(TR, ch3_ty), (TIE_X, ch3_ty)], fill=C["ch3"], width=3)
+    d.line([(TR, ch10_ty), (TIE_X, ch10_ty)], fill=C["ch10"], width=3)
+    d.line([(TIE_X, ch3_ty), (TIE_X, ch10_ty)], fill=C["rtd_w"], width=3)
+    dot(d, TIE_X, ch3_ty, color=C["ch3"])
+    dot(d, TIE_X, ch10_ty, color=C["ch10"])
+    d.text((TIE_X + 10, ch3_ty - 24), "CH3 + CH10 tied", fill=C["muted"], font=F(14))
+    d.text((TIE_X + 10, ch10_ty + 6), "(→ R6 pins 1 + 3)", fill=C["muted"], font=F(13))
+
+    # R6: pins 1+3 left, wiper pin 2 → CH11
+    POT_L = TIE_X + 40
+    POT_R = POT_L + 420
+    pot_sym_h(d, POT_L, POT_Y, POT_R, label="10 kΩ", sublabel="R6 (adj. RTD)")
+    d.line([(TIE_X, POT_Y), (POT_L, POT_Y)], fill=C["rtd_w"], width=3)
+    d.line([(POT_R, POT_Y), (TR, ch11_ty)], fill=C["ch11"], width=3)
+    d.text((POT_R + 8, POT_Y - 22), "wiper pin 2 → CH11", fill=C["ch11"], font=F(13))
+    dot(d, TR, ch11_ty, color=C["ch11"])
+
+    # C6 on CH11 → GND
+    cap_x = POT_R + 160
+    cap_y0 = ch11_ty + 30
+    cap_y1 = cap_y0 + 90
+    d.line([(cap_x, ch11_ty), (cap_x, cap_y0)], fill=C["ch11"], width=3)
+    cap_sym_v(d, cap_x, cap_y0, cap_y1)
+    gnd_sym(d, cap_x, cap_y1 + 6)
+
+    note_y = tys[-1] + TH + 50
+    d.text((TERM_X, note_y), "Excitation path:",
+           fill=C["rtd_lbl"], font=F(16, bold=True))
+    d.text((TERM_X + 170, note_y),
+           "CH11 ← R6 wiper ← CH3+CH10 ← 2 kΩ RSENSE ← CH1+CH2 (C1→GND)",
+           fill=C["rtd_w"], font=F(16))
+    d.text((TERM_X, note_y + 26),
+           "CH1/CH2 are tied together but NOT hard-shorted to GND — only C1 (0.01 µF) to GND.",
+           fill=C["muted"], font=F(14))
+    d.text((TERM_X, note_y + 48),
+           "On DC2213A these are onboard. On DC2210A: jumper CH1↔CH2, add 2 kΩ CH2–CH3.",
+           fill=C["muted"], font=F(14))
+
+    T0, T1 = 1230, 1558
+    fw_table(d, (60, T0, 1260, T1),
+             col_headers=["CH1", "CH2", "CH3", "CH10", "CH11"],
+             row_data=[
+                 ["Tied to CH2|C1→GND",
+                  "RSENSE low|(w/ CH1)",
+                  "2 kΩ RSENSE|CFG_RSENSE",
+                  "Kelvin → R6|(pins 1+3)",
+                  "R6 wiper|CFG_RTD"],
+             ])
+
+    def sym_pot(d, x, y):
+        pot_sym_h(d, x, y, x + 90, label="10 kΩ", sublabel="R6")
+
+    def sym_cap(d, x, y):
+        cap_sym_v(d, x + 22, y - 10, y + 34)
+
+    def sym_res(d, x, y):
+        d.line([(x, y), (x + 16, y)], fill=C["rtd_w"], width=2)
+        d.rectangle([x + 16, y - 8, x + 52, y + 8], outline=C["rtd_w"], width=2, fill="#FFFFFF")
+        d.line([(x + 52, y), (x + 68, y)], fill=C["rtd_w"], width=2)
+
+    def sym_gnd(d, x, y):
+        gnd_sym(d, x + 22, y - 10, label="")
+
+    legend_table(d, (1280, T0, W - 60, T1),
+                 wire_entries=[
+                     (C["rtd_w"],  "Simulator / excitation"),
+                     (C["ch1"],   "CH1 — tied to CH2"),
+                     (C["ch2"],   "CH2 — RSENSE return (w/ CH1)"),
+                     (C["ch3"],   "CH3 — RSENSE high / R6 pins 1+3"),
+                     (C["ch10"],  "CH10 — RTDSH (Kelvin, tied to CH3)"),
+                     (C["ch11"],  "CH11 — R6 wiper (pin 2)"),
+                     (C["gnd"],   "EEGND"),
+                 ],
+                 sym_entries=[
+                     ("10 kΩ Potentiometer R6", sym_pot),
+                     ("0.01 µF Capacitor (C1/C2/C6)", sym_cap),
+                     ("2.00 kΩ RSENSE",         sym_res),
+                     ("EEGND",                  sym_gnd),
+                 ])
+
+    img.save(OUT / "dc2213a-rtd-simulator-wiring.png", "PNG")
+    print("wrote dc2213a-rtd-simulator-wiring.png")
+
+
+# ── Diagram 1c: DC2213A dual RTD — working firmware (CH8 J3 + CH11 R6) ────
+
+def draw_dc2213a_dual_rtd():
+    W, H = 2800, 1900
+    img = Image.new("RGB", (W, H), C["bg"])
+    d = ImageDraw.Draw(img)
+
+    title = "DC2213A — Dual RTD Configuration  (CH8 J3 PT1000 + CH11 R6 Simulator)"
+    tw = d.textlength(title, font=F(36, bold=True))
+    d.text(((W - tw) / 2, 20), title, fill=C["title"], font=F(36, bold=True))
+
+    esp_box(d, (60, 74, 520, 272))
+    ltc_box(d, (1500, 74, 2320, 272))
+    spi_block(d, 540, 1480, 108)
+
+    # ── Shared RSENSE (left) ─────────────────────────────────────────────
+    dashed_rect(d, (60, 290, 520, 1480), fill=C["rtd_f"], border=C["rtd_b"])
+    d.text((80, 302), "Shared Excitation — CH3 RSENSE",
+           fill=C["rtd_lbl"], font=F(20, bold=True))
+    d.text((80, 328), "CH1 + CH2 tied (C1→GND)  |  2 kΩ between CH1/CH2 and CH3",
+           fill=C["muted"], font=F(14))
+
+    BUS_X = 280
+    ch12_y = 420
+    ch3_y = 620
+
+    dot(d, BUS_X, ch12_y, color=C["ch2"])
+    d.text((BUS_X + 16, ch12_y - 36), "CH1 + CH2", fill=C["muted"], font=F(14, bold=True))
+
+    c1_x = BUS_X + 100
+    d.line([(BUS_X, ch12_y), (c1_x, ch12_y)], fill=C["ch2"], width=3)
+    cap_sym_v(d, c1_x, ch12_y + 18, ch12_y + 100, label="0.01 µF", sublabel="C1")
+    gnd_sym(d, c1_x, ch12_y + 106)
+
+    resistor_rect_v(d, BUS_X, ch12_y, ch3_y)
+    dot(d, BUS_X, ch3_y, color=C["ch3"], r=8)
+    d.text((BUS_X + 18, ch3_y - 10), "CH3", fill=C["ch3"], font=F(15, bold=True))
+
+    c2_x = BUS_X + 100
+    d.line([(BUS_X, ch3_y), (c2_x, ch3_y)], fill=C["ch3"], width=3)
+    cap_sym_v(d, c2_x, ch3_y + 18, ch3_y + 100, label="0.01 µF", sublabel="C2")
+    gnd_sym(d, c2_x, ch3_y + 106)
+
+    # Channel labels on bus
+    for lbl, col, ty in [("CH1", C["ch1"], ch12_y - 55), ("CH2", C["ch2"], ch12_y + 8),
+                         ("CH3", C["ch3"], ch3_y + 14)]:
+        d.text((80, ty), lbl, fill=col, font=F(14, bold=True))
+
+    HUB_X = 560
+    d.line([(BUS_X, ch3_y), (HUB_X, ch3_y)], fill=C["ch3"], width=4)
+    dot(d, HUB_X, ch3_y, color=C["ch3"], r=8)
+
+    # ── J3 External PT1000 (upper right) ───────────────────────────────────
+    J3_Y0, J3_Y1 = 300, 820
+    dashed_rect(d, (540, J3_Y0, W - 60, J3_Y1), fill=C["rtd_f"], border=C["rtd_b"])
+    d.text((560, J3_Y0 + 12), "J3 External PT1000  →  firmware CH8 (CFG_RTD_KELVIN)",
+           fill=C["rtd_lbl"], font=F(20, bold=True))
+    d.text((560, J3_Y0 + 38),
+           "CH7 tied to CH3 at probe leg 1  |  CH8 = probe leg 2  |  CH9 NC",
+           fill=C["muted"], font=F(14))
+
+    J3X = 600
+    J3W = 200
+    PIN_H = 68
+    j3_top = J3_Y0 + 80
+    d.rounded_rectangle([J3X, j3_top - 26, J3X + J3W, j3_top + 4 * PIN_H + 4],
+                        radius=6, fill="#ECEFF1", outline="#546E7A", width=2)
+    d.text((J3X + 8, j3_top - 22), "J3 Connector", fill="#37474F", font=F(15, bold=True))
+
+    pins = [("Pin 4  RTDFH  (CH3)", C["ch3"]), ("Pin 3  RTDSH  (CH7)", C["ch7"]),
+            ("Pin 2  RTDSL  (CH8)", C["ch8"]), ("Pin 1  RTDFL  (CH9)", C["ch9"])]
+    pcys = []
+    for i, (lbl, col) in enumerate(pins):
+        py0 = j3_top + i * PIN_H
+        pcy = py0 + PIN_H // 2
+        pcys.append(pcy)
+        d.rectangle([J3X + 4, py0 + 2, J3X + J3W - 4, py0 + PIN_H - 2],
+                    outline=col, width=2, fill="#FFFFFF")
+        d.text((J3X + 10, pcy - 10), lbl, fill=col, font=F(13, bold=True))
+
+    p4y, p3y, p2y, p1y = pcys
+    J3R = J3X + J3W
+
+    d.line([(HUB_X, ch3_y), (J3X, p4y)], fill=C["ch3"], width=3)
+
+    TIE_J3 = J3R + 90
+    PROBE_R = TIE_J3 + 380
+    rtd_y = (p3y + p2y) // 2
+
+    d.line([(J3R, p4y), (TIE_J3, p4y)], fill=C["ch3"], width=3)
+    d.line([(J3R, p3y), (TIE_J3, p3y)], fill=C["ch7"], width=3)
+    d.line([(TIE_J3, p4y), (TIE_J3, p3y)], fill=C["rtd_w"], width=3)
+    dot(d, TIE_J3, p4y, color=C["ch3"])
+    dot(d, TIE_J3, p3y, color=C["ch7"])
+    d.text((TIE_J3 + 8, p4y - 20), "CH3 + CH7 tied", fill=C["muted"], font=F(13))
+
+    d.line([(TIE_J3, p3y), (TIE_J3, rtd_y)], fill=C["rtd_w"], width=3)
+    rtd_sym_h(d, TIE_J3, rtd_y, PROBE_R, label="PT1000")
+    d.line([(PROBE_R, rtd_y), (PROBE_R, p2y)], fill=C["rtd_w"], width=3)
+    d.line([(J3R, p2y), (PROBE_R, p2y)], fill=C["ch8"], width=3)
+    dot(d, PROBE_R, p2y, color=C["ch8"])
+
+    nc_x = J3R + 50
+    d.line([(J3R, p1y), (nc_x, p1y)], fill=C["ch9"], width=3)
+    no_connect(d, nc_x + 12, p1y)
+    d.text((nc_x + 30, p1y - 10), "NC", fill=C["ch9"], font=F(13))
+
+    # ── R6 Adjustable Simulator (lower right) ────────────────────────────
+    R6_Y0, R6_Y1 = 860, 1480
+    dashed_rect(d, (540, R6_Y0, W - 60, R6_Y1), fill="#E8F6FF", border=C["rtd_b"])
+    d.text((560, R6_Y0 + 12), "Onboard R6 Adjustable RTD Simulator  →  firmware CH11",
+           fill=C["rtd_lbl"], font=F(20, bold=True))
+    d.text((560, R6_Y0 + 38),
+           "R6 pins 1+3 → CH3 + CH10 (Kelvin)  |  R6 wiper pin 2 → CH11  |  C6 on CH11",
+           fill=C["muted"], font=F(14))
+
+    TERM_X = 600
+    TW, TH, GAP = 140, 50, 14
+    ch10_ty = R6_Y0 + 130
+    ch11_ty = ch10_ty + TH + GAP + 40
+    ch3_r6_ty = ch10_ty - TH - GAP
+
+    for lbl, col, ty in [("CH3", C["ch3"], ch3_r6_ty), ("CH10", C["ch10"], ch10_ty),
+                         ("CH11", C["ch11"], ch11_ty)]:
+        d.rounded_rectangle([TERM_X, ty, TERM_X + TW, ty + TH],
+                              radius=6, outline=col, width=2, fill="#FFFFFF")
+        d.text((TERM_X + 12, ty + 14), lbl, fill=col, font=F(16, bold=True))
+
+    TR = TERM_X + TW
+    d.line([(HUB_X, ch3_y), (TERM_X, ch3_r6_ty + TH // 2)], fill=C["ch3"], width=3)
+
+    TIE_R6 = TR + 100
+    POT_Y = (ch10_ty + ch11_ty + TH) // 2
+    d.line([(TR, ch3_r6_ty + TH // 2), (TIE_R6, ch3_r6_ty + TH // 2)], fill=C["ch3"], width=3)
+    d.line([(TR, ch10_ty + TH // 2), (TIE_R6, ch10_ty + TH // 2)], fill=C["ch10"], width=3)
+    d.line([(TIE_R6, ch3_r6_ty + TH // 2), (TIE_R6, ch10_ty + TH // 2)], fill=C["rtd_w"], width=3)
+    dot(d, TIE_R6, ch10_ty + TH // 2, color=C["ch10"])
+    d.text((TIE_R6 + 10, ch10_ty - 8), "CH3 + CH10 → R6 pins 1+3", fill=C["muted"], font=F(13))
+
+    POT_L = TIE_R6 + 50
+    POT_R = POT_L + 400
+    pot_sym_h(d, POT_L, POT_Y, POT_R, label="10 kΩ", sublabel="R6")
+    d.line([(TIE_R6, POT_Y), (POT_L, POT_Y)], fill=C["rtd_w"], width=3)
+    d.line([(POT_R, POT_Y), (TR, ch11_ty + TH // 2)], fill=C["ch11"], width=3)
+    d.text((POT_R + 6, POT_Y - 22), "wiper pin 2 → CH11", fill=C["ch11"], font=F(13))
+
+    cap_x = POT_R + 140
+    d.line([(cap_x, ch11_ty + TH // 2), (cap_x, ch11_ty + TH // 2 + 24)],
+           fill=C["ch11"], width=3)
+    cap_sym_v(d, cap_x, ch11_ty + TH // 2 + 24, ch11_ty + TH // 2 + 110,
+              label="0.01 µF", sublabel="C6")
+    gnd_sym(d, cap_x, ch11_ty + TH // 2 + 116)
+
+    # ── Notes ────────────────────────────────────────────────────────────
+    d.text((560, 1500), "Shared excitation:",
+           fill=C["rtd_lbl"], font=F(16, bold=True))
+    d.text((760, 1500),
+           "Both RTDs share CH3 RSENSE (250 µA Kelvin, rotation/sharing enabled)",
+           fill=C["rtd_w"], font=F(15))
+    d.text((560, 1528),
+           "ESPHome:  PT1000 Temperature (CH8)  |  RTD Simulator Temperature (CH11)",
+           fill=C["muted"], font=F(14))
+
+    T0, T1 = 1560, 1860
+    fw_table(d, (60, T0, 1500, T1),
+             col_headers=["CH1", "CH2", "CH3", "CH7", "CH8", "CH9", "CH10", "CH11"],
+             row_data=[
+                 ["Tied→CH2|C1→GND", "RSENSE rtn", "2kΩ RSENSE|shared",
+                  "Kelvin|(→CH3)", "PT1000|CFG_RTD_KELVIN", "NC",
+                  "Kelvin|(→CH3,R6 p1+3)", "R6 wiper|CFG_RTD_SIM"],
+             ])
+
+    def sym_rtd(d, x, y):
+        rtd_sym_h(d, x, y, x + 58, label="", color=C["rtd_w"])
+
+    def sym_pot(d, x, y):
+        pot_sym_h(d, x, y, x + 80, label="10k", sublabel="R6")
+
+    def sym_res(d, x, y):
+        d.line([(x, y), (x + 14, y)], fill=C["rtd_w"], width=2)
+        d.rectangle([x + 14, y - 7, x + 48, y + 7], outline=C["rtd_w"], width=2, fill="#FFFFFF")
+        d.line([(x + 48, y), (x + 62, y)], fill=C["rtd_w"], width=2)
+
+    def sym_cap(d, x, y):
+        cap_sym_v(d, x + 18, y - 8, y + 28)
+
+    def sym_gnd(d, x, y):
+        gnd_sym(d, x + 18, y - 8, label="")
+
+    legend_table(d, (1520, T0, W - 60, T1),
+                 wire_entries=[
+                     (C["rtd_w"],  "RTD excitation (shared)"),
+                     (C["ch3"],   "CH3 — RSENSE / RTDFH / R6 pins 1+3"),
+                     (C["ch7"],   "CH7 — J3 Kelvin sense"),
+                     (C["ch8"],   "CH8 — J3 PT1000 leg 2"),
+                     (C["ch10"],  "CH10 — R6 Kelvin (tied to CH3)"),
+                     (C["ch11"],  "CH11 — R6 wiper"),
+                     (C["gnd"],   "EEGND"),
+                 ],
+                 sym_entries=[
+                     ("PT1000 RTD", sym_rtd),
+                     ("10 kΩ Pot R6", sym_pot),
+                     ("2.00 kΩ RSENSE", sym_res),
+                     ("0.01 µF Cap", sym_cap),
+                     ("EEGND", sym_gnd),
+                 ])
+
+    img.save(OUT / "dc2213a-dual-rtd-wiring.png", "PNG")
+    print("wrote dc2213a-dual-rtd-wiring.png")
 
 
 # ── Diagram 2: DC2210A single PT1000 (simplified, breadboard terminals) ────
@@ -905,6 +1317,8 @@ def draw_dc2210a_5rtd_5tc():
 
 
 if __name__ == "__main__":
+    draw_dc2213a_dual_rtd()
     draw_dc2213a_pt1000()
+    draw_dc2213a_rtd_simulator()
     draw_dc2210a_pt1000()
     draw_dc2210a_5rtd_5tc()
