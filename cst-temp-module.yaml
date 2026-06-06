@@ -37,15 +37,9 @@ logger:
   hardware_uart: UART0
   baud_rate: 115200
   logs:
-    packet_transport: WARN
-    uart: WARN
-    uart_transport: WARN
-    rx_ui_cmd: INFO
     api.connection: ERROR
-    max31865: ERROR
-    max6675: ERROR
     spi: ERROR
-    LTC2983: ERROR
+    LTC2983: DEBUG
 
 psram:
   mode: octal
@@ -66,8 +60,15 @@ sensor:
     accuracy_decimals: 2
     state_class: "measurement"
 
+  - platform: template
+    name: "RTD Simulator Temperature"
+    id: rtd_sim
+    unit_of_measurement: "°C"
+    accuracy_decimals: 2
+    state_class: "measurement"
+
 interval:
   - interval: 5s
     then:
       - lambda: |-
-          read_ltc2983_single_rtd(id(rtd_1));
+          read_ltc2983_rtds(id(rtd_1), id(rtd_sim));
