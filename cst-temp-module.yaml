@@ -33,7 +33,7 @@ packages:
 captive_portal:
 
 logger:
-  level: VERBOSE
+  level: DEBUG
   hardware_uart: UART0
   baud_rate: 115200
   logs:
@@ -42,10 +42,10 @@ logger:
     uart_transport: WARN
     rx_ui_cmd: INFO
     api.connection: ERROR
-    max31865: VERBOSE
-    max6675: DEBUG
-    spi: VERBOSE
-    LTC2983: VERBOSE
+    max31865: ERROR
+    max6675: ERROR
+    spi: ERROR
+    LTC2983: ERROR
 
 psram:
   mode: octal

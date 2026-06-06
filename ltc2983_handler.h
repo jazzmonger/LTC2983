@@ -7,23 +7,12 @@
 
 static const char *const TAG = "LTC2983";
 
-// --------------------------------------------------------------------------
-// DC2213A J3 external RTD connector (per schematic):
-//   CH3 → RTDFH (pin 4)   CH7 → RTDSH (pin 3)
-//   CH8 → RTDSL (pin 2)   CH9 → RTDFL (pin 1, unused at sensor)
-//   LTC2983 assignment: CH8 = PT1000 4-wire Kelvin RSENSE, ptr CH3
-//   Sensor wiring on J3 (matches schematic):
-//     leg1 → RTDFH + RTDSH (pins 4+3 tied)
-//     leg2 → RTDSL (pin 2); RTDFL (pin 1) left open
-//   CH5 = onboard demo RTD — NOT J3; do not use for external sensor.
-// --------------------------------------------------------------------------
+// DC2213A J3: CH3 = 2 kΩ RSENSE, CH8 = external PT1000 (4-wire Kelvin, ptr CH3).
 
 #define LTC2983_COMMAND_STATUS_REG  0x0000
 #define LTC2983_GLOBAL_CONFIG_REG   0x00F0
 #define LTC2983_CH_ASSIGN_BASE      0x0200
 #define LTC2983_DATA_BASE           0x0010
-#define LTC2983_VOUT_BASE           0x0060   // measured voltage/resistance result (raw/1024)
-
 #define LTC2983_CONVERSION_CONTROL  0x80     // Start=1, Done=0; OR with channel number
 
 #define STATUS_DONE_MASK    0x40
@@ -35,9 +24,13 @@ static const char *const TAG = "LTC2983";
 #define LTC2983_SPI_MOSI    GPIO_NUM_5
 #define LTC2983_SPI_MISO    GPIO_NUM_4
 
-#define CH_RSENSE     3
-#define CH_RSENSE_PTR 3
-#define CH_PT1000     8   // J3 external RTD (official DC2213 CH8 slot)
+#define CH_RSENSE  3
+#define CH_RTD     8   // J3 external PT1000
+
+// DC2213A channel config words
+#define CFG_RSENSE ((uint32_t)0x1D << 27) | 0x001F4000UL
+#define CFG_RTD    ((uint32_t)0x0F << 27) | ((uint32_t)CH_RSENSE << 22) \
+                 | (0x3UL << 20) | (0x2UL << 18) | (0x6UL << 14)
 
 static spi_device_handle_t ltc2983_spi_device  = nullptr;
 static bool ltc2983_initialized                = false;
@@ -109,10 +102,6 @@ static inline uint16_t ch_data_addr(uint8_t ch) {
   return LTC2983_DATA_BASE + (uint16_t)(ch - 1) * 4;
 }
 
-static inline uint16_t ch_vout_addr(uint8_t ch) {
-  return LTC2983_VOUT_BASE + (uint16_t)(ch - 1) * 4;
-}
-
 static bool initialize_ltc2983() {
   if (ltc2983_initialized) return true;
 
@@ -171,37 +160,12 @@ static bool initialize_ltc2983() {
     }
   }
 
-  // CH3: onboard 2 kΩ sense resistor
-  //   type  bits 31:27 = 0x1D (Sense Resistor)
-  //   value = 2000 × 1024 = 0x1F4000 (matches DC2213A: SENSE_RESISTOR_VALUE 0x1F4000)
-  uint32_t rsense_cfg = ((uint32_t)0x1D << 27) | 0x001F4000UL;
-  write_dword(ch_assign_addr(CH_RSENSE), rsense_cfg);
-  uint32_t rsense_rb = read_dword(ch_assign_addr(CH_RSENSE));
-  ESP_LOGI(TAG, "CH%d RSENSE  written=0x%08" PRIX32 "  readback=0x%08" PRIX32 "%s",
-           CH_RSENSE, rsense_cfg, rsense_rb,
-           (rsense_rb == rsense_cfg) ? " OK" : " *** MISMATCH ***");
-
-  // Clear onboard demo channels — we only want J3 external on CH8.
-  write_dword(ch_assign_addr(5),  0x00000000UL);
-  write_dword(ch_assign_addr(11), 0x00000000UL);
-
-  // CH8: PT1000, 4-wire Kelvin RSENSE, ptr CH3 (official DC2213 CH8 topology).
-  uint32_t pt1000_cfg = ((uint32_t)0x0F << 27)
-                      | ((uint32_t)CH_RSENSE_PTR << 22)
-                      | (0x3UL << 20) | (0x2UL << 18) | (0x6UL << 14) | (0x0UL << 12);
-  write_dword(ch_assign_addr(CH_PT1000), pt1000_cfg);
-  uint32_t pt1000_rb = read_dword(ch_assign_addr(CH_PT1000));
-  ESP_LOGI(TAG, "CH%d PT1000 (J3) written=0x%08" PRIX32 " readback=0x%08" PRIX32 "%s",
-           CH_PT1000, pt1000_cfg, pt1000_rb,
-           (pt1000_rb == pt1000_cfg) ? " OK" : " MISMATCH");
-
+  write_dword(ch_assign_addr(CH_RSENSE), CFG_RSENSE);
+  write_dword(ch_assign_addr(CH_RTD), CFG_RTD);
   write_byte(LTC2983_GLOBAL_CONFIG_REG, 0x00);
 
-  // MUX configuration delay (0x0FF): DC2213A official config uses 0 (no extra delay).
-  write_byte(0x00FF, 0x00);
-
   ltc2983_initialized = true;
-  ESP_LOGI(TAG, "LTC2983 ready — CH8=J3 external PT1000  CH3=RSENSE(2kΩ)");
+  ESP_LOGI(TAG, "LTC2983 ready — CH%d RSENSE, CH%d J3 PT1000", CH_RSENSE, CH_RTD);
   return true;
 }
 
@@ -233,31 +197,22 @@ static bool wait_conversion_done() {
   return false;
 }
 
-static void log_rtd_channel(uint8_t ch) {
-  uint32_t raw  = read_dword(ch_data_addr(ch));
-  uint8_t  flt  = (uint8_t)(raw >> 24);
-  float    temp = parse_temperature(raw);
-  int32_t  vout = (int32_t)read_dword(ch_vout_addr(ch));
-  float    ohms = (float)vout / 1024.0f;
-  if (std::isnan(temp))
-    ESP_LOGI(TAG, "J3 CH%2d: flt=0x%02X R=%7.1fΩ temp=nan", ch, flt, ohms);
-  else
-    ESP_LOGI(TAG, "J3 CH%2d: flt=0x%02X R=%7.1fΩ temp=%.2fC", ch, flt, ohms, temp);
-}
-
 inline void read_ltc2983_single_rtd(
     esphome::template_::TemplateSensor *rtd) {
 
   if (!initialize_ltc2983()) return;
 
-  write_byte(LTC2983_COMMAND_STATUS_REG, LTC2983_CONVERSION_CONTROL | CH_PT1000);
+  write_byte(LTC2983_COMMAND_STATUS_REG, LTC2983_CONVERSION_CONTROL | CH_RTD);
   if (!wait_conversion_done()) {
     ESP_LOGE(TAG, "Conversion timed out");
     return;
   }
 
-  log_rtd_channel(CH_PT1000);
-
-  float temp = parse_temperature(read_dword(ch_data_addr(CH_PT1000)));
+  uint32_t raw = read_dword(ch_data_addr(CH_RTD));
+  float temp = parse_temperature(raw);
+  if (std::isnan(temp))
+    ESP_LOGI(TAG, "CH%d: flt=0x%02X temp=nan", CH_RTD, (uint8_t)(raw >> 24));
+  else
+    ESP_LOGI(TAG, "CH%d: temp=%.2fC", CH_RTD, temp);
   if (!std::isnan(temp)) rtd->publish_state(temp);
 }
